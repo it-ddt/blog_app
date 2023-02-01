@@ -1,0 +1,141 @@
+# models.py
+from django.db import models
+
+class Category(models.Model):
+    title = models.CharField(max_length=100)
+
+    def __str__(self):
+        return self.title
+
+class Post(models.Model):
+    title = models.CharField(max_length=100)
+    text = models.TextField()
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    likes = models.ManyToManyField(User, through='Like')
+
+    def __str__(self):
+        return self.title
+
+class Like(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    post = models.ForeignKey(Post, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('user', 'post')
+
+# views.py
+from django.shortcuts import render, get_object_or_404
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
+from .models import Post, Category, Like
+
+class PostDetailView(DetailView):
+    model = Post
+
+class PostListView(ListView):
+    model = Post
+    paginate_by = 10
+
+class PostCreateView(LoginRequiredMixin, CreateView):
+    model = Post
+    fields = ['title', 'text', 'category']
+
+    def form_valid(self, form):
+        form.instance.author = self.request.user
+        return super().form_valid(form)
+
+class PostUpdateView(LoginRequiredMixin, UpdateView):
+    model = Post
+    fields = ['title', 'text', 'category']
+
+class PostDeleteView(LoginRequiredMixin, DeleteView):
+    model = Post
+    success_url = '/posts/'
+
+class CategoryDetailView(DetailView):
+    model = Category
+
+class CategoryListView(ListView):
+    model = Category
+
+def add_like(request, pk):
+    post = get_object_or_404(Post, pk=pk)
+    like = Like(user=request.user, post=post)
+    like.save()
+    return redirect('post_detail', pk=pk)
+
+def remove_like(request, pk):
+    post = get_object_or_404(Post, pk=pk)
+    like = Like.objects.get(user=request.user, post=post)
+    like.delete()
+    return redirect('post_detail', pk=pk)
+
+# templates/post_detail.html
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>{{ object.title }}</h1>
+    <p>{{ object.text }}</p>
+    <p>Category: {{ object.category.title }}</p>
+    <p>Likes: {{ object.likes.count }}</p>
+    <p>Liked by:
+        {% for like in object.likes.all %}
+            {{ like.user.username }}{% if not forloop.last %}, {% endif %}
+        {% endfor %}
+    </p>
+    {% if request.user in object.likes.all %}
+        <a href="{% url 'remove_like' object.pk %}">Dislike</a>
+    {% else %}
+        <a href="{% url 'add_like' object.pk %}">Like</a>
+    {% endif %}
+{% endblock %}
+
+# templates/category_detail.html
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>{{ object.title }}</h1>
+    <p>Related posts:</p>
+    <ul>
+        {% for post in object.post_set.all %}
+            <li><a href="{% url 'post_detail' post.pk %}">{{ post.title }}</a></li>
+        {% endfor %}
+    </ul>
+{% endblock %}
+
+# templates/post_list.html
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>All posts</h1>
+    <ul>
+        {% for post in object_list %}
+            <li><a href="{% url 'post_detail' post.pk %}">{{ post.title }}</a></li>
+        {% endfor %}
+    </ul>
+{% endblock %}
+
+# templates/category_list.html
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1>All categories</h1>
+    <ul>
+        {% for category in object_list %}
+            <li>{{ category.title }}
+                <ul>
+                    {% for post in category.post_set.all %}
+                        <li><a href="{% url 'post_detail' post.pk %}">{{ post.title }}</a></li>
+                    {% endfor %}
+                </ul>
+            </li>
+        {% endfor %}
+    </ul>
+{% endblock %}
+
+# urls.py
+from django.urls import path
+from .views import PostDetailView, PostListView, PostCreateView, PostUpdateView, PostDeleteView, CategoryDetailView, CategoryListView, add_like, remove_like
+
+urlpatterns = [    path('posts/', PostListView.as_view(), name='post_list'),    path('posts/<int:pk>/', PostDetailView.as_view(), name='post_detail'),    path('posts/new/', PostCreateView.as_view(), name='post_create'),    path('posts/<int:pk>/update/', PostUpdateView.as_view(), name='post_update'),    path('posts/<int:pk>/delete/', PostDeleteView.as_view(), name='post_delete'),
